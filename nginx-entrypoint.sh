@@ -98,6 +98,20 @@ configure_site () {
     return 0
 }
 
+wait_nginx_stop () {
+    for i in {1..150}; do # timeout for 5 minutes
+       if [ ! -f /var/run/nginx.pid ]; then
+          # process does not exist eny more
+          return 0
+       fi
+       sleep 1
+    done
+    echo ""
+    echo "Timeout while waiting nginx to stop"
+
+    exit 1
+}
+
 # Gather parameters
 while [[ $# -gt 0 ]]
 do
@@ -130,6 +144,8 @@ case $1 in
     exit_code=$?
 
     nginx -s stop
+
+    wait_nginx_stop
 
     if [ $exit_code -ne 0 ]; then
         echo "Certificate renewing failed"
@@ -248,6 +264,8 @@ then
 
     nginx -s stop
 
+    wait_nginx_stop
+
     if [ $exit_code -ne 0 ] ; then
            exit $exit_code
     fi
@@ -283,5 +301,6 @@ fi
 
 
 if [ $RUN = true ] ; then
-    exec touch /etc/nginx/lastUpdateTime && nginx -g "daemon off;"
+    touch /etc/nginx/lastUpdateTime
+    exec nginx -g "daemon off;"
 fi
