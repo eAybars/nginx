@@ -3,37 +3,39 @@
 This image may be useful to anyone who wishes to serve content through SSL. It takes away the burden of retrieving and installing SSL certificate and configuring Nginx to use these certificates when serving content. 
 
 ## What does it do?
-Nginx-SSL can retrieves SSL certificate(s) through **Lets Encrypt** for desired domain names, and can install and configure them on startup when it is run for the first time. It can also renew previously obtained certificates without stopping or interrupting the proxy service. 
+* Retrieves a SSL certificate which contains domain names found in `DOMAINS` environment variable through **Lets Encrypt**
+* Renew previously created certificates
+* Update a kubernetes secret object with the contents of a certificate
 
 In order to be able to serve meaningful content, the image needs to be supplied with further configuration files or content. This can either be done by mounting some configuration directories as described below or by extending this image and supplying the configurations that way.
 
 ## To run
 To simply run the image without any ssl configuration:
 ```
-docker run -d -p 80:80 -p 443:443 eaybars/nginx-ssl
+docker run -d -p 80:80 -p 443:443 eaybars/nginx
 ```
 
-In order to be able to obtain and configure SSL certificates, containers needs to be started on the owned domain with port 80 mapped to the image's port 80. 
+In order to be able to obtain and configure SSL certificates, containers needs to be started on the owned domain with port 80 mapped to the container's port 80. 
 
 You also need to supply the domain name(s) information on which you wish to serve contents and optionally a contact email to use when registering your certificate to Lets Encrypt. Although it is optional, it is strongly recommended to supply a contact mail so that you can manage your certificates and get information about them from Lets Encrypt.
 
-You can simply provide domain names through `DOMAIN_NAMES` environment variable which can contain a single domain name or multiple domain names separated by space
+You can simply provide domain names through `DOMAINS` environment variable which can contain a single domain name or multiple domain names separated by comma
 ```
-docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e DOMAIN_NAMES=mydomain.com eaybars/nginx-ssl
+docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e DOMAINS=mydomain.com eaybars/nginx-ssl --create-or-renew-cert --run
 ```
 or
 ```
-docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e DOMAIN_NAMES="mydomain.com www.mydomain.com" eaybars/nginx-ssl
+docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e DOMAINS="mydomain.com,www.mydomain.com" eaybars/nginx-ssl --create-or-renew-cert --run
 ```
-You can also simply provide a contact email information through CONTACT_EMAIL environment variable like so:
+You can also simply provide a contact email information through EMAIL environment variable like so:
 
 ```
-docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e CONTACT_EMAIL=info@mydomain.com -e DOMAIN_NAMES="mydomain.com www.mydomain.com" eaybars/nginx-ssl 
+docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e EMAIL=info@mydomain.com -e DOMAINS="mydomain.com,www.mydomain.com" eaybars/nginx-ssl --create-or-renew-cert --run
 ```
 
 **To prevent the container from retrieving a new certificate on every fresh start, you could mount the `/etc/letsencrypt/` directory to a persistent storage when running:**
 ```
-docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e DOMAIN_NAMES=mydomain.com -e CONTACT_EMAIL=myemail@mydomain.com -v /my/own/certificate/dir:/etc/letsencrypt/ eaybars/nginx-ssl
+docker run -d -p 80:80 -p 443:443 --name nginx-ssl -e DOMAINS=mydomain.com -e EMAIL=myemail@mydomain.com -v /my/own/certificate/dir:/etc/letsencrypt/ eaybars/nginx-ssl --create-or-renew-cert --run
 ```
 
 ## Important Directories

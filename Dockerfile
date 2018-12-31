@@ -3,25 +3,25 @@ FROM nginx
 # install certbot to obtain ssl certificate from Lets Encrypt
 RUN apt-get update -qq && \
     apt-get install -y -qq certbot && \
+    apt-get install -y -qq curl && \
     apt-get clean all
 
 # Generate Strong Diffie-Hellman Group
 RUN openssl dhparam -out /etc/ssl/certs/dhparam.pem 2048 > /dev/null 2>&1
 
-# override main configuration file
-COPY well-known.conf /etc/nginx/default.d/
-COPY http-root.conf /etc/nginx/archive.d/
-
 # Define entrypoint for the image
-ENTRYPOINT ["/usr/bin/nginx-entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/entrypoint.sh"]
 
 EXPOSE 443
 
-# Add entrypoint scipt
-COPY nginx-entrypoint.sh /usr/bin
-RUN chmod 777 /usr/bin/nginx-entrypoint.sh
-COPY ping.sh /usr/bin
-RUN chmod 777 /usr/bin/ping.sh
+# add template files
+COPY well-known.conf /etc/nginx/default.d/
+COPY ssl-redirect.conf /etc/nginx/archive.d/
+COPY ssl-site-template.conf /etc/nginx/archive.d/
+COPY secret-patch-template.json /etc/nginx/
 
-CMD ["--renew-all", "--configure-from-env", "--create-nginx-conf", "missing", "--run"]
+CMD ["--run"]
 
+# add scripts
+COPY entrypoint.sh /usr/bin
+COPY ssl-config-util.sh /usr/bin
