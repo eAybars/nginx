@@ -1,35 +1,13 @@
 #!/usr/bin/env bash
 
-# environment variables:
-# -----------------------
-# DOMAINS domain names which will be included in the retrieved certificate
-# EMAIL registration email address, required by Let's Encrypt
-# CERT_NAME certificate name
-# KUBE_SECRET if operating within kubernetes, this secret file will be updated with contents of the certificate
-
-# generated variables after execution
-# -----------------------
-# CERTBOT_ARGS arguments to invoke certbot
-# CERT_NAME assigne to first domain name if not exists earlier
-
 NAMESPACE="default"
 if [ -f  /var/run/secrets/kubernetes.io/serviceaccount/namespace ]
 then
     NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
 fi
-CERTBOT_ARGS=("certonly" "--agree-tos" "--non-interactive" "--webroot" "--webroot-path" "/usr/share/nginx/html")
 
-# prepare certbot arguments
-if [ -z $EMAIL ]; then
-    CERTBOT_ARGS+=("--register-unsafely-without-email")
-else
-    CERTBOT_ARGS=("${CERTBOT_ARGS[@]}" "--email" "$EMAIL")
-fi
-if [ $DOMAINS ]
-then
-    CERT_NAME=${CERT_NAME:-"$(echo $DOMAINS | cut -f1 -d',')"}
-    CERTBOT_ARGS=("${CERTBOT_ARGS[@]}" "--cert-name" "$CERT_NAME" "--domains" "$DOMAINS")
-fi
+K8S_ENV=0
+if [ -f /var/run/secrets/kubernetes.io/serviceaccount/ca.crt ]; then K8S_ENV=1; fi
 
 wait_nginx_stop () {
     for i in {1..150}; do # timeout for 5 minutes
@@ -46,29 +24,26 @@ wait_nginx_stop () {
 }
 
 create_or_renew_certificate () {
-    if [ -z $DOMAINS ]; then return 1; fi
+    local certbot_args=("certonly" "--agree-tos" "--non-interactive" "--webroot" "--webroot-path" "/usr/share/nginx/html" "$@")
 
-    echo "preparing to create certificates for $DOMAINS"
-
-    certbot_args=("${CERTBOT_ARGS[@]}" "$@")
-
-    echo "Invoking certbot with the following arguments:"
-    echo ${certbot_args[@]}
+    echo "Invoking certbot ${certbot_args[@]}"
 
     if [ ! -f /var/run/nginx.pid ]
     then
         # start nginx and invoke certbot to retrieve new SSL certificates for new domains
         nginx && certbot "${certbot_args[@]}"
+
         exit_code=$?
         nginx -s stop && wait_nginx_stop
         if [ $exit_code -ne 0 ] ; then exit $exit_code; fi
     else
-        certbot "${certbot_args[@]}"
+        certbot "${certbot_args[@]}" && nginx -s reload
     fi
 }
 
+
 renew_certificates () {
-    renew_args=("renew" "--quiet" "$@")
+    local renew_args=("renew" "--quiet" "$@")
 
     if [ ! -f /var/run/nginx.pid ]
     then
@@ -82,52 +57,170 @@ renew_certificates () {
     fi
 }
 
-patch_call_to_k8s () {
-    curl_args=("-k" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "\"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\"" "-H" "\"Accept: application/json, */*\"" "-H" "\"Content-Type: application/strategic-merge-patch+json\"" "-XPATCH")
+create_dhparam () {
+    echo "Creating dhparam, this will take a while. Consider mounting /etc/ssl/certs/dhparam for future use"
+    mkdir -p /etc/ssl/certs/dhparam && \
+        openssl dhparam -out /etc/ssl/certs/dhparam/dhparam.pem 2048 > /dev/null 2>&1
+    echo "dhparam is generated here: /etc/ssl/certs/dhparam/dhparam.pem"
+}
+
+copy_certificates () {
+    cert_name=$1
+    if [ -z $cert_name ]
+    then
+        echo "No certificate name specified for copy_certificates"
+        return 1;
+    fi
+
+    mkdir -p /etc/ssl/certs/$cert_name && \
+            cp -L /etc/letsencrypt/live/$cert_name/privkey.pem /etc/ssl/certs/$cert_name/tls.key && \
+            cp -L /etc/letsencrypt/live/$cert_name/fullchain.pem /etc/ssl/certs/$cert_name/tls.crt
+}
+
+docker_tls_renew_hook () {
+    copy_certificates "${RENEWED_LINEAGE##*/}"
+    if [ -f /var/run/nginx.pid ]; then nginx -s reload; fi
+}
+
+# -------- KUBERNETES RELATED UTILITIES -----------------
+
+# $1 is the target object i.e. secret, pod etc
+k8s_call () {
+    if [ $K8S_ENV -eq 0 ]; then return 1; fi
+
+    local curl_args=("-k" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "\"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\"" "-H" "\"Accept: application/json, */*\"")
+
     # add target url from first parameter
     curl_args+=("https://kubernetes/api/v1/namespaces/${NAMESPACE}/$1")
     shift
 
     # add remaining parameters of the function to curl arguments
     curl_args+=("$@")
+
     curl "${curl_args[@]}"
 }
 
-update_secret () {
-    if [ -z $KUBE_SECRET ]; then return 1; fi
-    # update kubernetes secret object if KUBE_SECRET variable is present
-    CERTPATH=/etc/letsencrypt/live/$CERT_NAME
+is_k8s_object_exists () {
+    if [ $(k8s_call $1 -s -o /dev/null -I -w "%{http_code}") -eq 200 ]
+    then
+        return 0;
+    else
+        return 1;
+    fi
+}
 
-    cat /etc/nginx/secret-patch-template.json | \
-        sed "s/NAMESPACE/${NAMESPACE}/" | \
-        sed "s/NAME/${KUBE_SECRET}/" | \
-        sed "s/TLSCERT/$(cat ${CERTPATH}/fullchain.pem | base64 | tr -d '\n')/" | \
-        sed "s/TLSKEY/$(cat ${CERTPATH}/privkey.pem |  base64 | tr -d '\n')/" \
-        > /tmp/secret-patch.json
+# $1 a path to generate secret data from contents
+# $2 name of the secret, defaults to directory name of the first argument
+print_k8s_secret () {
+    if [ -z $1 ]
+    then
+        echo "print_k8s_secret requires a path as first argument, no path argument found to generate secret!"
+        return 1;
+    fi
+
+
+    local secret_name=${2:-"${1##*/}"}
+    local secret_json="\
+{\n\
+  \"kind\": \"Secret\",\n\
+  \"apiVersion\": \"v1\",\n\
+  \"metadata\": {\n\
+    \"name\": \"$secret_name\",\n\
+    \"namespace\": \"$NAMESPACE\"\n\
+  },\n\
+  \"type\": \"Opaque\",\n\
+  \"data\": {\n"
+
+    local prefix=""
+
+    for f in $(ls $1); do
+      secret_json="$secret_json$prefix   \"$f\": \"$(cat ${1}/$f | base64 | tr -d '\n')\""
+      prefix=",\n"
+    done
+
+    secret_json="$secret_json \n  }\n}\n"
+
+    printf "$secret_json"
+}
+
+create_k8s_secret () {
+    local secret_json=$(print_k8s_secret $1 $2)
+    if [ $? -nq 0 ]; then return 0; fi
+
+    local secret_name=${2:-"${1##*/}"}
+
+    printf "$secret_json" > /tmp/$secret_name.json
+    k8s_call secrets -X POST -d "@/tmp/$secret_name.json"
+    exit_code=$?
+    rm /tmp/$secret_name.json
+    return exit_code
+}
+
+update_k8s_secret () {
+    local secret_json=$(print_k8s_secret $1 $2)
+    if [ $? -nq 0 ]; then return 0; fi
+
+    local secret_name=${2:-"${1##*/}"}
+
+    printf "$secret_json" > /tmp/$secret_name.json
 
     # update secret
-    patch_call_to_k8s "secrets/${KUBE_SECRET}" -d @/tmp/secret-patch.json
+    k8s_call "secrets/${secret_name}" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/secret-patch.json"
     exit_code=$?
-    rm /tmp/secret-patch.json
-    if [ $exit_code -ne 0 ] ; then exit $exit_code; fi
+    rm /tmp/$secret_name.json
+    return exit_code
 }
 
-configure_site () {
-    if [ -z $DOMAINS ]; then return 1; fi
+update_k8s_tls_secret () {
+    local cert_name=$1
 
-    cat /etc/nginx/archive.d/ssl-site-template.conf | \
-        sed "s/CERT_NAME/${CERT_NAME}/" | \
-        sed "s/SERVER_NAME/${DOMAINS}/" | \
-        > /etc/nginx/conf.d/$CERT_NAME.conf
+    copy_certificates $cert_name
 
-    mkdir -p /etc/nginx/conf.d/$CERT_NAME/http/ /etc/nginx/conf.d/$CERT_NAME/https/
-    return 0
-}
-
-configure_ssl_only_site () {
-    configure_site
-    if [ -d /etc/nginx/conf.d/$CERT_NAME/http ]
+    is_k8s_object_exists secrets/$cert_name
+    if [ $? -nq 0 ]
     then
-        cp /etc/nginx/archive.d/ssl-redirect.conf /etc/nginx/conf.d/$CERT_NAME/http/
+        create_k8s_secret /etc/ssl/certs/$cert_name
+    else
+        update_k8s_secret /etc/ssl/certs/$cert_name
     fi
+}
+
+k8s_tls_renew_hook () {
+    update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
+}
+
+init_k8s_tls_secrets () {
+    create_or_renew_certificate "$@"
+    if [ $? -nq 0 ]; then return 0; fi
+
+    local cert_name=$(ls /etc/letsencrypt/live)
+    cert_name=cert_name[0]
+
+    update_k8s_tls_secret $cert_name
+}
+
+# $1 dhparam secret name
+init_k8s_dhparam_secrets () {
+    if [ -z $1 ]
+    then
+        echo "init_k8s_dhparam_secrets requires a secret name as first argument, no secret name argument found to generate secret!"
+        return 1;
+    fi
+
+    is_k8s_object_exists secrets/$1
+    if [ $? -nq 0 ]
+    then
+        if [ ! -f /etc/ssl/certs/dhparam/dhparam.pem ]
+        then
+            create_dhparam && create_k8s_secret /etc/ssl/certs/dhparam $1
+        else
+            create_k8s_secret /etc/ssl/certs/dhparam $1
+        fi
+    fi
+}
+
+
+
+print_test () {
+    echo "test string from ssl-config-util.sh"
 }
