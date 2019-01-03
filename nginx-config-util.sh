@@ -8,12 +8,13 @@ source /usr/bin/ssl-config-util.sh
 configure_single_site () {
     if [ -z $1 ]
     then
-        echo "configure_site requires coma separated list of domain names as its first argument"
+        echo "configure_single_site requires a coma separated list of domain names as its first argument"
         return 1
     fi
 
     local cert_name=${2:-"$(echo $1 | cut -f1 -d',')"}
     local config_name=${3:-"$cert_name"}
+    local default_server=${4:-"default_server"}
 
     echo "Generating configuration for $1 using certificate $cert_name"
 
@@ -31,14 +32,15 @@ configure_single_site () {
 
     cat /etc/nginx/archive.d/ssl-site-template.conf | \
         sed "s/SERVER_NAME/${1}/" | \
+        sed "s/DEFAULT_SERVER/${default_server}/" | \
         sed "s/CERT_NAME/${cert_name}/" | \
-        sed "s/CONFIG_NAME/${config_name}/" | \
-        > /etc/nginx/conf.d/$1.conf
+        sed "s/CONFIG_NAME/${config_name}/" \
+        > /etc/nginx/conf.d/$config_name.conf
 
     mkdir -p /etc/nginx/conf.d/$config_name/http/ /etc/nginx/conf.d/$config_name/https/
 
     echo "Created config file: "
-    cat /etc/nginx/conf.d/$1.conf
+    cat /etc/nginx/conf.d/$config_name.conf
     return 0
 }
 
@@ -47,7 +49,7 @@ configure_single_site () {
 configure_site_foreach () {
     if [ -z $1 ]
     then
-        echo "configure_site requires comma separated list of domain names as its first argument"
+        echo "configure_site_foreach requires comma separated list of domain names as its first argument"
         return 1
     fi
     local cert_name=${2:-"$(echo $1 | cut -f1 -d',')"}
@@ -55,7 +57,7 @@ configure_site_foreach () {
 
     IFS=',' read -ra domain_names <<< "$1"
     for domain_name in "${domain_names[@]}"; do
-        configure_single_site domain_name cert_name domain_name
+        configure_single_site domain_name cert_name domain_name " "
     done
 }
 
@@ -67,7 +69,7 @@ make_site_ssl_only () {
         return 1
     fi
 
-    if [ $? -eq 0 ] && [ -d /etc/nginx/conf.d/$1/http ]
+    if [ -d /etc/nginx/conf.d/$1/http ]
     then
         printf 'location / { return 301 https://$server_name$request_uri; }\n' >> /etc/nginx/conf.d/$1/http/ssl-redirect.conf
         echo "Added https redirect for $1"

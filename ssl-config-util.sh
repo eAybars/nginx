@@ -26,7 +26,7 @@ wait_nginx_stop () {
 create_or_renew_certificate () {
     local certbot_args=("certonly" "--agree-tos" "--non-interactive" "--webroot" "--webroot-path" "/usr/share/nginx/html" "$@")
 
-    echo "Invoking certbot ${certbot_args[@]}"
+    echo "Invoking: certbot ${certbot_args[@]}"
 
     if [ ! -f /var/run/nginx.pid ]
     then
@@ -200,7 +200,7 @@ init_k8s_tls_secrets () {
 }
 
 # $1 dhparam secret name
-init_k8s_dhparam_secrets () {
+init_k8s_dhparam_secret () {
     if [ -z $1 ]
     then
         echo "init_k8s_dhparam_secrets requires a secret name as first argument, no secret name argument found to generate secret!"

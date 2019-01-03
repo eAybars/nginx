@@ -3,11 +3,12 @@
 source /usr/bin/ssl-config-util.sh
 source /usr/bin/nginx-config-util.sh
 
+RUN=false
 TLS_SECRET=${TLS_SECRET:-"tls"}
 DHPARAM_SECRET=${DHPARAM_SECRET:-"dhparam"}
 
 init () {
-    local certbot_args=("$DOMAINS" "--cert-name" "$TLS_SECRET")
+    local certbot_args=("--domains" "$DOMAINS" "--cert-name" "$TLS_SECRET")
 
     if [ -z $EMAIL ]; then
         # create a test certificate if no EMAIL is present
@@ -18,10 +19,10 @@ init () {
 
     if [ $K8S_ENV -eq 1 ]
     then
-        init_k8s_tls_secrets "${certbot_args[@]}"
-        init_k8s_dhparam_secrets $DHPARAM_SECRET
+        init_k8s_tls_secrets "${certbot_args[@]}" && \
+        init_k8s_dhparam_secret $DHPARAM_SECRET
     else
-        create_or_renew_certificate "${certbot_args[@]}"
+        create_or_renew_certificate "${certbot_args[@]}" && \
         create_dhparam
     fi
 }
@@ -40,7 +41,7 @@ case $1 in
             echo "No DOMAINS env variable is present. It is required with --init option"
             exit 1;
         fi
-        init
+        init || exit 1
         shift
     ;;
     --tls-update)
@@ -50,6 +51,7 @@ case $1 in
         else
             renew_certificates --renew-hook "sh -c \"source /usr/bin/ssl-config-util.sh; docker_tls_renew_hook\""
         fi
+        if [ $? -ne 0 ]; then exit 1; fi
 
         shift
     ;;
@@ -60,27 +62,33 @@ case $1 in
             exit 1;
         fi
         shift
+        if [ -z $1 ]
+        then
+            echo "You need to specify an option for --configure-nginx. Available options are: single, for-each, ssl-only-single and ssl-only-for-each"
+            exit 1
+        fi
+        shift
         case $1 in
             single)
-                configure_single_site $DOMAINS $TLS_SECRET
+                configure_single_site $DOMAINS $TLS_SECRET || exit 1
                 shift
             ;;
             for-each)
-                configure_site_foreach $DOMAINS $TLS_SECRET
+                configure_site_foreach $DOMAINS $TLS_SECRET || exit 1
                 shift
             ;;
             ssl-only-single)
-                configure_single_site $DOMAINS $TLS_SECRET
-                make_site_ssl_only $TLS_SECRET
+                configure_single_site $DOMAINS $TLS_SECRET && make_site_ssl_only $TLS_SECRET
+                if [ $? -ne 0 ]; then exit 1; fi
                 shift
             ;;
             ssl-only-for-each)
-                configure_site_foreach $DOMAINS $TLS_SECRET
-                make_sites_ssl_only $DOMAINS
+                configure_site_foreach $DOMAINS $TLS_SECRET && make_sites_ssl_only $DOMAINS
+                if [ $? -ne 0 ]; then exit 1; fi
                 shift
             ;;
             *)
-                echo "Unrecognized nginx configuration option $1. available options are: single, for-each, ssl-only-single and ssl-only-for-each"
+                echo "Unrecognized nginx configuration option $1. Available options are: single, for-each, ssl-only-single and ssl-only-for-each"
                 exit 1
             ;;
         esac
@@ -92,6 +100,7 @@ case $1 in
 esac
 done
 
-if [ $RUN = true ] ; then
+if [[ $RUN = true ]]
+then
     exec nginx -g "daemon off;"
 fi

@@ -6,9 +6,6 @@ RUN apt-get update -qq && \
     apt-get install -y -qq curl && \
     apt-get clean all
 
-# Generate Strong Diffie-Hellman Group
-RUN openssl dhparam -out /etc/ssl/certs/dhparam/dhparam.pem 2048 > /dev/null 2>&1
-
 # Define entrypoint for the image
 ENTRYPOINT ["/usr/bin/entrypoint.sh"]
 
