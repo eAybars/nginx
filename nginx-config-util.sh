@@ -24,10 +24,10 @@ configure_single_site () {
         create_dhparam
     fi
 
-    # create dhparam if not exists
+    # copy carts if not already exists
     if [ ! -d "/etc/ssl/certs/$cert_name" ]
     then
-        copy_certificates $cert_name
+        copy_certificates $cert_name || return 1
     fi
 
     cat /etc/nginx/archive.d/ssl-site-template.conf | \
@@ -57,7 +57,7 @@ configure_site_foreach () {
 
     IFS=',' read -ra domain_names <<< "$1"
     for domain_name in "${domain_names[@]}"; do
-        configure_single_site domain_name cert_name domain_name " "
+        configure_single_site domain_name cert_name domain_name " " || return 1
     done
 }
 
@@ -86,6 +86,6 @@ make_sites_ssl_only () {
     local config_names=()
     IFS=',' read -ra config_names <<< "$1"
     for config_name in "${config_names[@]}"; do
-        make_site_ssl_only config_name
+        make_site_ssl_only config_name || return 1
     done
 }

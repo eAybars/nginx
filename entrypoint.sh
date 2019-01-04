@@ -8,6 +8,7 @@ TLS_SECRET=${TLS_SECRET:-"tls"}
 DHPARAM_SECRET=${DHPARAM_SECRET:-"dhparam"}
 
 init () {
+    echo "Initializing certificate..."
     local certbot_args=("--domains" "$DOMAINS" "--cert-name" "$TLS_SECRET")
 
     if [ -z $EMAIL ]; then
@@ -27,6 +28,22 @@ init () {
     fi
 }
 
+init_or_update () {
+    if [ ! -d /etc/letsencrypt/live/$TLS_SECRET ]
+    then # No certificate, so we need to init
+        init || exit 1
+    else # Certificate exists, renew if required
+        if [ $K8S_ENV -eq 1 ]
+        then
+            renew_certificates --renew-hook "sh -c \"source /usr/bin/ssl-config-util.sh; k8s_tls_renew_hook\""
+        else
+            renew_certificates --renew-hook "sh -c \"source /usr/bin/ssl-config-util.sh; docker_tls_renew_hook\""
+        fi
+        if [ $? -ne 0 ]; then exit 1; fi
+    fi
+}
+
+
 # Gather parameters
 while [[ $# -gt 0 ]]
 do
@@ -35,24 +52,13 @@ case $1 in
         RUN=true
         shift
     ;;
-    --init)
+    --tls-update)
         if [ -z $DOMAINS ]
         then
-            echo "No DOMAINS env variable is present. It is required with --init option"
+            echo "No DOMAINS env variable is present. It is required with --tls-update option"
             exit 1;
         fi
-        init || exit 1
-        shift
-    ;;
-    --tls-update)
-        if [ $K8S_ENV -eq 1 ]
-        then
-            renew_certificates --renew-hook "sh -c \"source /usr/bin/ssl-config-util.sh; k8s_tls_renew_hook\""
-        else
-            renew_certificates --renew-hook "sh -c \"source /usr/bin/ssl-config-util.sh; docker_tls_renew_hook\""
-        fi
-        if [ $? -ne 0 ]; then exit 1; fi
-
+        init_or_update || exit 1
         shift
     ;;
     --configure-nginx)
@@ -94,7 +100,7 @@ case $1 in
         esac
         ;;
     *)
-        echo "Unrecognized option $1. Available options are: --run, --init, --tls-update and --configure-nginx"
+        echo "Unrecognized option $1. Available options are: --run, --tls-update and --configure-nginx"
         exit 1
     ;;
 esac
