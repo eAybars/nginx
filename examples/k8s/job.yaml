@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ssl-init-job
+  labels:
+    component: tls
+    role: ssl-management
+spec:
+  template:
+    metadata:
+      labels:
+        component: tls
+        role: ssl-management
+    spec:
+      restartPolicy: Never
+      containers:
+      - image: eaybars/nginx
+        name: ssl-init
+        args: ["--tls-update"]
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "100Mi"
+            cpu: 100m
+        env:
+        - name: DOMAINS
+          value: "example.com"
+        - name: EMAIL # skip to generate test certificates
+          value: "your@email.address"
+        volumeMounts:
+        - name: letsencrypt
+          mountPath: /etc/letsencrypt
+      volumes:
+      - name: letsencrypt
+        persistentVolumeClaim:
+          claimName: letsencrypt
