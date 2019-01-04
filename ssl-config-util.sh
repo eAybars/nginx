@@ -165,10 +165,10 @@ create_k8s_secret () {
     local secret_name=${2:-"${1##*/}"}
 
     printf "$secret_json" > /tmp/$secret_name.json
-    k8s_call secrets -X POST -d "@/tmp/$secret_name.json"
+    k8s_call secrets -X POST -H "Content-Type: application/json" -d "@/tmp/$secret_name.json"
     exit_code=$?
     rm /tmp/$secret_name.json
-    return exit_code
+    return $exit_code
 }
 
 update_k8s_secret () {
@@ -181,7 +181,7 @@ update_k8s_secret () {
     k8s_call "secrets/${secret_name}" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/secret-patch.json"
     exit_code=$?
     rm /tmp/$secret_name.json
-    return exit_code
+    return $exit_code
 }
 
 update_k8s_tls_secret () {
@@ -191,11 +191,11 @@ update_k8s_tls_secret () {
 
     if is_k8s_object_exists secrets/$cert_name
     then
-        echo "Creating kubernetes object secrets/$cert_name"
-        create_k8s_secret /etc/ssl/certs/$cert_name || return 1
-    else
         echo "Updating kubernetes object secrets/$cert_name"
         update_k8s_secret /etc/ssl/certs/$cert_name || return 1
+    else
+        echo "Creating kubernetes object secrets/$cert_name"
+        create_k8s_secret /etc/ssl/certs/$cert_name || return 1
     fi
 }
 
