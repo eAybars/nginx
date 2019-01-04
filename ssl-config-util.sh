@@ -20,7 +20,7 @@ wait_nginx_stop () {
     echo ""
     echo "Timeout while waiting nginx to stop"
 
-    exit 1
+    return 1
 }
 
 find_parameter_value () {
@@ -52,7 +52,7 @@ create_or_renew_certificate () {
 
         exit_code=$?
         nginx -s stop && wait_nginx_stop
-        if [ $exit_code -ne 0 ] ; then exit $exit_code; fi
+        if [ $exit_code -ne 0 ] ; then return $exit_code; fi
     else
         certbot "${certbot_args[@]}" && nginx -s reload
     fi
@@ -68,7 +68,7 @@ renew_certificates () {
         exit_code=$?
 
         nginx -s stop && wait_nginx_stop
-        if [ $exit_code -ne 0 ] ; then exit $exit_code; fi
+        if [ $exit_code -ne 0 ] ; then return $exit_code; fi
     else
         certbot "${renew_args[@]}"
     fi
@@ -105,10 +105,10 @@ docker_tls_renew_hook () {
 k8s_call () {
     if [ $K8S_ENV -eq 0 ]; then return 1; fi
 
-    local curl_args=("-k" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "\"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\"" "-H" "\"Accept: application/json, */*\"")
+    local curl_args=("--http1.1" "-k" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "-H" "Accept: application/json, */*")
 
     # add target url from first parameter
-    curl_args+=("https://kubernetes/api/v1/namespaces/${NAMESPACE}/$1")
+    curl_args+=("https://kubernetes.default.svc/api/v1/namespaces/${NAMESPACE}/$1")
     shift
 
     # add remaining parameters of the function to curl arguments
@@ -118,7 +118,7 @@ k8s_call () {
 }
 
 is_k8s_object_exists () {
-    if [ $(k8s_call $1 -s -o /dev/null -I -w "%{http_code}") -eq 200 ]
+    if [ $(k8s_call $1 -s -o /dev/null -w "%{http_code}") -eq 200 ]
     then
         return 0;
     else
@@ -161,9 +161,7 @@ print_k8s_secret () {
 }
 
 create_k8s_secret () {
-    local secret_json=$(print_k8s_secret $1 $2)
-    if [ $? -nq 0 ]; then return 0; fi
-
+    local secret_json=$(print_k8s_secret $1 $2) || return 1
     local secret_name=${2:-"${1##*/}"}
 
     printf "$secret_json" > /tmp/$secret_name.json
@@ -174,9 +172,7 @@ create_k8s_secret () {
 }
 
 update_k8s_secret () {
-    local secret_json=$(print_k8s_secret $1 $2)
-    if [ $? -nq 0 ]; then return 0; fi
-
+    local secret_json=$(print_k8s_secret $1 $2) || return 1
     local secret_name=${2:-"${1##*/}"}
 
     printf "$secret_json" > /tmp/$secret_name.json
@@ -193,14 +189,13 @@ update_k8s_tls_secret () {
 
     copy_certificates $cert_name
 
-    is_k8s_object_exists secrets/$cert_name
-    if [ $? -nq 0 ]
+    if is_k8s_object_exists secrets/$cert_name
     then
         echo "Creating kubernetes object secrets/$cert_name"
-        create_k8s_secret /etc/ssl/certs/$cert_name || exit 1
+        create_k8s_secret /etc/ssl/certs/$cert_name || return 1
     else
         echo "Updating kubernetes object secrets/$cert_name"
-        update_k8s_secret /etc/ssl/certs/$cert_name || exit 1
+        update_k8s_secret /etc/ssl/certs/$cert_name || return 1
     fi
 }
 
@@ -218,7 +213,7 @@ init_k8s_tls_secrets () {
         if [ -z $cert_name ]
         then
             echo "Cannot determine certificate name"
-            exit 1
+            return 1
         else
             cert_name="$(echo $cert_name | cut -f1 -d',')"
         fi
@@ -235,8 +230,7 @@ init_k8s_dhparam_secret () {
         return 1;
     fi
 
-    is_k8s_object_exists secrets/$1
-    if [ $? -nq 0 ]
+    if is_k8s_object_exists secrets/$1
     then
         if [ ! -f /etc/ssl/certs/dhparam/dhparam.pem ]
         then

@@ -41,7 +41,6 @@ init_or_update () {
         else
             renew_certificates --renew-hook "sh -c \"source /usr/bin/ssl-config-util.sh; docker_tls_renew_hook\""
         fi
-        if [ $? -ne 0 ]; then exit 1; fi
     fi
 }
 
@@ -86,13 +85,11 @@ case $1 in
                 shift
             ;;
             ssl-only-single)
-                configure_single_site $DOMAINS $TLS_SECRET && make_site_ssl_only $TLS_SECRET
-                if [ $? -ne 0 ]; then exit 1; fi
+                configure_single_site $DOMAINS $TLS_SECRET && make_site_ssl_only $TLS_SECRET || exit 1
                 shift
             ;;
             ssl-only-for-each)
-                configure_site_foreach $DOMAINS $TLS_SECRET && make_sites_ssl_only $DOMAINS
-                if [ $? -ne 0 ]; then exit 1; fi
+                configure_site_foreach $DOMAINS $TLS_SECRET && make_sites_ssl_only $DOMAINS || exit 1
                 shift
             ;;
             *)
