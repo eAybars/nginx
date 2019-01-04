@@ -23,6 +23,23 @@ wait_nginx_stop () {
     exit 1
 }
 
+find_parameter_value () {
+    local parameter=$1
+    shift
+    while [[ $# -gt 0 ]]
+    do
+        case $1 in
+            "$parameter")
+                printf $2
+                return 0
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+}
+
 create_or_renew_certificate () {
     local certbot_args=("certonly" "--agree-tos" "--non-interactive" "--webroot" "--webroot-path" "/usr/share/nginx/html" "$@")
 
@@ -179,9 +196,11 @@ update_k8s_tls_secret () {
     is_k8s_object_exists secrets/$cert_name
     if [ $? -nq 0 ]
     then
-        create_k8s_secret /etc/ssl/certs/$cert_name
+        echo "Creating kubernetes object secrets/$cert_name"
+        create_k8s_secret /etc/ssl/certs/$cert_name || exit 1
     else
-        update_k8s_secret /etc/ssl/certs/$cert_name
+        echo "Updating kubernetes object secrets/$cert_name"
+        update_k8s_secret /etc/ssl/certs/$cert_name || exit 1
     fi
 }
 
@@ -190,13 +209,22 @@ k8s_tls_renew_hook () {
 }
 
 init_k8s_tls_secrets () {
-    create_or_renew_certificate "$@"
-    if [ $? -nq 0 ]; then return 0; fi
+    local cert_name=$(find_parameter_value "--cert-name" "$@")
 
-    local cert_name=$(ls /etc/letsencrypt/live)
-    cert_name=cert_name[0]
+    if [ -z $cert_name ]
+    then
+        cert_name=$(find_parameter_value "--domains" "$@")
+        if [ -z $cert_name ]; then cert_name=$(find_parameter_value "-d" "$@"); fi
+        if [ -z $cert_name ]
+        then
+            echo "Cannot determine certificate name"
+            exit 1
+        else
+            cert_name="$(echo $cert_name | cut -f1 -d',')"
+        fi
+    fi
 
-    update_k8s_tls_secret $cert_name
+    create_or_renew_certificate "$@" && update_k8s_tls_secret $cert_name
 }
 
 # $1 dhparam secret name
