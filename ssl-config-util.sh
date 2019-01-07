@@ -108,7 +108,7 @@ k8s_call () {
     local curl_args=("--http1.1" "-k" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "-H" "Accept: application/json, */*")
 
     # add target url from first parameter
-    curl_args+=("https://kubernetes.default.svc/api/v1/namespaces/${NAMESPACE}/$1")
+    curl_args+=("https://kubernetes.default.svc/$1")
     shift
 
     # add remaining parameters of the function to curl arguments
@@ -165,7 +165,7 @@ create_k8s_secret () {
     local secret_name=${2:-"${1##*/}"}
 
     printf "$secret_json" > /tmp/$secret_name.json
-    k8s_call secrets -X POST -H "Content-Type: application/json" -d "@/tmp/$secret_name.json"
+    k8s_call "api/v1/namespaces/${NAMESPACE}/secrets" -X POST -H "Content-Type: application/json" -d "@/tmp/$secret_name.json"
     exit_code=$?
     rm /tmp/$secret_name.json
     return $exit_code
@@ -178,7 +178,7 @@ update_k8s_secret () {
     printf "$secret_json" > /tmp/$secret_name.json
 
     # update secret
-    k8s_call "secrets/${secret_name}" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/secret-patch.json"
+    k8s_call "api/v1/namespaces/${NAMESPACE}/secrets/${secret_name}" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$secret_name.json"
     exit_code=$?
     rm /tmp/$secret_name.json
     return $exit_code
@@ -189,7 +189,7 @@ update_k8s_tls_secret () {
 
     copy_certificates $cert_name
 
-    if is_k8s_object_exists secrets/$cert_name
+    if is_k8s_object_exists "api/v1/namespaces/${NAMESPACE}/secrets/$cert_name"
     then
         echo "Updating kubernetes object secrets/$cert_name"
         update_k8s_secret /etc/ssl/certs/$cert_name || return 1
@@ -197,10 +197,6 @@ update_k8s_tls_secret () {
         echo "Creating kubernetes object secrets/$cert_name"
         create_k8s_secret /etc/ssl/certs/$cert_name || return 1
     fi
-}
-
-k8s_tls_renew_hook () {
-    update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
 }
 
 init_k8s_tls_secrets () {
@@ -230,7 +226,7 @@ init_k8s_dhparam_secret () {
         return 1;
     fi
 
-    if is_k8s_object_exists secrets/$1
+    if is_k8s_object_exists "api/v1/namespaces/${NAMESPACE}/secrets/$1"
     then
         if [ ! -f /etc/ssl/certs/dhparam/dhparam.pem ]
         then
@@ -241,7 +237,65 @@ init_k8s_dhparam_secret () {
     fi
 }
 
+print_deployment_json () {
+    printf "\
+{\n\
+  \"apiVersion\": \"$1\",\n\
+  \"kind\": \"$2\",\n\
+  \"metadata\": {\n\
+    \"name\": \"$3\",\n\
+    \"namespace\": \"$NAMESPACE\"\n\
+  },\n\
+  \"spec\": {\n\
+    \"template\": {\n\
+      \"metadata\": {
+        \"annotations\": {
+          \"ssl.reload.time\": \"$(date)\"\n\
+         }\n\
+       }\n\
+     }\n\
+   }\n\
+}\n"
+}
 
+update_deployment () {
+    printf $(print_deployment_json "apps/v1beta1" "Deployment" $1) > /tmp/$1-Deployment.json
+
+    # update secret
+    k8s_call "apis/extensions/v1beta1/namespaces/${NAMESPACE}/deployments/$1" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$1-Deployment.json"
+    exit_code=$?
+    rm /tmp/$1-Deployment.json
+    return $exit_code
+}
+
+update_ingress () {
+    printf "\
+{\n\
+  \"apiVersion\": \"v1beta1\",\n\
+  \"kind\": \"Ingress\",\n\
+  \"metadata\": {\n\
+    \"name\": \"$1\",\n\
+    \"namespace\": \"$NAMESPACE\"\n\
+  },\n\
+  \"spec\": {\n\
+    \"annotations\": {
+      \"ssl.reload.time\": \"$(date)\"\n\
+     }\n\
+   }\n\
+}\n\
+" >> /tmp/$1-Ingress.json
+    k8s_call "apis/extensions/v1beta1/namespaces/${NAMESPACE}/ingresses/$1" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$1-Ingress.json"
+    exit_code=$?
+    rm /tmp/$1-Ingress.json
+    return $exit_code
+}
+
+
+k8s_tls_renew_hook () {
+    update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
+    if [ ! -z $UPDATE_DEPLOYMENT ]; then update_deployment $UPDATE_DEPLOYMENT; fi
+    if [ ! -z $UPDATE_INGRESS ]; then update_deployment $UPDATE_INGRESS; fi
+}
 
 print_test () {
     echo "test string from ssl-config-util.sh"
