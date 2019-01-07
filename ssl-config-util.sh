@@ -94,11 +94,6 @@ copy_certificates () {
             cp -L /etc/letsencrypt/live/$cert_name/fullchain.pem /etc/ssl/certs/$cert_name/tls.crt
 }
 
-docker_tls_renew_hook () {
-    copy_certificates "${RENEWED_LINEAGE##*/}"
-    if [ -f /var/run/nginx.pid ]; then nginx -s reload; fi
-}
-
 # -------- KUBERNETES RELATED UTILITIES -----------------
 
 # $1 is the target object i.e. secret, pod etc
@@ -183,7 +178,7 @@ update_k8s_secret () {
 update_k8s_tls_secret () {
     local cert_name=$1
 
-    copy_certificates $cert_name
+    copy_certificates $cert_name || exit 1
 
     if is_k8s_object_exists "api/v1/namespaces/${NAMESPACE}/secrets/$cert_name"
     then
@@ -284,12 +279,6 @@ update_ingress () {
     return $exit_code
 }
 
-
-k8s_tls_renew_hook () {
-    update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
-    if [ ! -z $UPDATE_DEPLOYMENT ]; then update_deployment $UPDATE_DEPLOYMENT; fi
-    if [ ! -z $UPDATE_INGRESS ]; then update_deployment $UPDATE_INGRESS; fi
-}
 
 print_test () {
     echo "test string from ssl-config-util.sh"
