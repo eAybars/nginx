@@ -20,4 +20,5 @@ CMD ["--run"]
 # add scripts
 COPY entrypoint.sh /usr/bin
 COPY ssl-config-util.sh /usr/bin
+COPY renew-hooks.sh /usr/bin
 COPY nginx-config-util.sh /usr/bin
