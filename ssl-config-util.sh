@@ -161,24 +161,20 @@ print_k8s_secret () {
 }
 
 create_k8s_secret () {
-    local secret_json=$(print_k8s_secret $1 $2) || return 1
     local secret_name=${2:-"${1##*/}"}
 
-    printf "$secret_json" > /tmp/$secret_name.json
-    k8s_call "api/v1/namespaces/${NAMESPACE}/secrets" -X POST -H "Content-Type: application/json" -d "@/tmp/$secret_name.json"
+    print_k8s_secret $1 $2 > /tmp/$secret_name.json && \
+        k8s_call "api/v1/namespaces/${NAMESPACE}/secrets" -X POST -H "Content-Type: application/json" -d "@/tmp/$secret_name.json"
     exit_code=$?
     rm /tmp/$secret_name.json
     return $exit_code
 }
 
 update_k8s_secret () {
-    local secret_json=$(print_k8s_secret $1 $2) || return 1
     local secret_name=${2:-"${1##*/}"}
 
-    printf "$secret_json" > /tmp/$secret_name.json
-
-    # update secret
-    k8s_call "api/v1/namespaces/${NAMESPACE}/secrets/${secret_name}" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$secret_name.json"
+    print_k8s_secret $1 $2 > /tmp/$secret_name.json && \
+        k8s_call "api/v1/namespaces/${NAMESPACE}/secrets/${secret_name}" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$secret_name.json"
     exit_code=$?
     rm /tmp/$secret_name.json
     return $exit_code
@@ -259,7 +255,7 @@ print_deployment_json () {
 }
 
 update_deployment () {
-    printf $(print_deployment_json "apps/v1beta1" "Deployment" $1) > /tmp/$1-Deployment.json
+    print_deployment_json "apps/v1beta1" "Deployment" $1 > /tmp/$1-Deployment.json
 
     # update secret
     k8s_call "apis/extensions/v1beta1/namespaces/${NAMESPACE}/deployments/$1" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$1-Deployment.json"
@@ -271,17 +267,15 @@ update_deployment () {
 update_ingress () {
     printf "\
 {\n\
-  \"apiVersion\": \"v1beta1\",\n\
+  \"apiVersion\": \"extensions/v1beta1\",\n\
   \"kind\": \"Ingress\",\n\
   \"metadata\": {\n\
     \"name\": \"$1\",\n\
-    \"namespace\": \"$NAMESPACE\"\n\
-  },\n\
-  \"spec\": {\n\
+    \"namespace\": \"$NAMESPACE\",\n\
     \"annotations\": {
       \"ssl.reload.time\": \"$(date)\"\n\
      }\n\
-   }\n\
+  }\n\
 }\n\
 " >> /tmp/$1-Ingress.json
     k8s_call "apis/extensions/v1beta1/namespaces/${NAMESPACE}/ingresses/$1" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$1-Ingress.json"
