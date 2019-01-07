@@ -100,7 +100,7 @@ copy_certificates () {
 k8s_call () {
     if [ $K8S_ENV -eq 0 ]; then return 1; fi
 
-    local curl_args=("--http1.1" "-k" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "-H" "Accept: application/json, */*")
+    local curl_args=("--http1.1" "-k" "-s" "-S" "--cacert" "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" "-H" "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" "-H" "Accept: application/json, */*")
 
     # add target url from first parameter
     curl_args+=("https://kubernetes.default.svc/$1")
