@@ -37,9 +37,9 @@ init_or_update () {
         then
             # first create secret if not already exists
             is_k8s_object_exists secrets/$TLS_SECRET || update_k8s_tls_secret $TLS_SECRET
-            renew_certificates --renew-hook "/usr/bin/renew-hooks.sh --k8s"
+            renew_certificates --renew-hook "renew-hooks.sh --k8s"
         else
-            renew_certificates --renew-hook "/usr/bin/renew-hooks.sh --docker"
+            renew_certificates --renew-hook "renew-hooks.sh --docker"
         fi
     fi
 }
