@@ -1,0 +1,17 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: letsencrypt
+  labels:
+    component: tls
+    role: ssl-management
+spec:
+  storageClassName: standard
+  selector:
+    matchLabels:
+      component: tls
+      role: ssl-management
+  accessModes: [ ReadWriteOnce ]
+  resources:
+    requests:
+      storage: 100Mi

@@ -16,7 +16,7 @@ spec:
       containers:
       - image: eaybars/nginx
         name: ssl-init
-        args: ["--tls-update"]
+        args: ["--init-or-update-tls", "--init-dhparam"]
         ports:
         - containerPort: 80
           name: http
@@ -26,9 +26,13 @@ spec:
             cpu: 100m
         env:
         - name: DOMAINS
-          value: "example.com"
+          value: "example.com" # change to your domain name
         - name: EMAIL # skip to generate test certificates
           value: "your@email.address"
+        - name: TLS_SECRET # will default to tls if shipped
+          value: "tls-certs" # change to your likings
+        - name: DHPARAM_SECRET # will default to tls if dhparam if not specified
+          value: "dhparam"
         volumeMounts:
         - name: letsencrypt
           mountPath: /etc/letsencrypt

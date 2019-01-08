@@ -1,0 +1,60 @@
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-ssl
+  labels:
+    component: tls
+    role: ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: tls
+      role: ingress
+  template:
+    metadata:
+      labels:
+        component: tls
+        role: ingress
+    spec:
+      containers:
+      - name: nginx-ssl
+        image: eaybars/nginx
+        args: ["--run", "--configure-nginx", "single"]
+        resources:
+          requests:
+            memory: "250Mi"
+            cpu: 200m
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
+        volumeMounts:
+          - name: ssl-certs
+            mountPath: "/etc/ssl/certs/tls-certs" # replace tls-certs with the value of the TLS_SECRET in job.yaml if different
+            readOnly: true
+          - name: dhparam
+            mountPath: "/etc/ssl/certs/dhparam"
+            readOnly: true
+        livenessProbe:
+          initialDelaySeconds: 30
+          periodSeconds: 5
+          timeoutSeconds: 1
+          httpGet:
+            path: /index.html #modify accordingly
+            port: http
+        readinessProbe:
+          initialDelaySeconds: 20
+          periodSeconds: 5
+          timeoutSeconds: 1
+          httpGet:
+            path: /index.html #modify accordingly
+            port: http
+      volumes:
+      - name: ssl-certs
+        secret:
+          secretName: "tls-certs" # value of the TLS_SECRET in job.yaml
+      - name: dhparam
+        secret:
+          secretName: "dhparam" # value of the TLS_SECRET in job.yaml
