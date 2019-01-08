@@ -3,7 +3,7 @@
 source /usr/bin/ssl-config-util.sh
 
 k8s_tls_renew_hook () {
-    update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
+    create_or_update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
     if [ ! -z $UPDATE_DEPLOYMENT ]; then update_deployment $UPDATE_DEPLOYMENT; fi
     if [ ! -z $UPDATE_INGRESS ]; then update_ingress $UPDATE_INGRESS; fi
 }

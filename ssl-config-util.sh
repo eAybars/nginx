@@ -113,12 +113,22 @@ k8s_call () {
 }
 
 is_k8s_object_exists () {
+    if [ -z $1 ]
+    then
+        echo "is_k8s_object_exists requires a relative path for queried kubernetes object as its first argument, no path argument found to query!"
+        return 1;
+    fi
+
     if [ $(k8s_call $1 -s -o /dev/null -w "%{http_code}") -eq 200 ]
     then
         return 0;
     else
         return 1;
     fi
+}
+
+is_k8s_secret_exists () {
+    is_k8s_object_exists "api/v1/namespaces/${NAMESPACE}/secrets/$1"
 }
 
 # $1 a path to generate secret data from contents
@@ -175,12 +185,12 @@ update_k8s_secret () {
     return $exit_code
 }
 
-update_k8s_tls_secret () {
+create_or_update_k8s_tls_secret () {
     local cert_name=$1
 
     copy_certificates $cert_name || exit 1
 
-    if is_k8s_object_exists "api/v1/namespaces/${NAMESPACE}/secrets/$cert_name"
+    if is_k8s_secret_exists "$cert_name"
     then
         echo "Updating kubernetes object secrets/$cert_name"
         update_k8s_secret /etc/ssl/certs/$cert_name || return 1
@@ -206,7 +216,7 @@ init_k8s_tls_secrets () {
         fi
     fi
 
-    create_or_renew_certificate "$@" && update_k8s_tls_secret $cert_name
+    create_or_renew_certificate "$@" && create_or_update_k8s_tls_secret $cert_name
 }
 
 # $1 dhparam secret name
@@ -217,14 +227,12 @@ init_k8s_dhparam_secret () {
         return 1;
     fi
 
-    if is_k8s_object_exists "api/v1/namespaces/${NAMESPACE}/secrets/$1"
+    is_k8s_secret_exists "$1" || \
+    if [ ! -f /etc/ssl/certs/dhparam/dhparam.pem ]
     then
-        if [ ! -f /etc/ssl/certs/dhparam/dhparam.pem ]
-        then
-            create_dhparam && create_k8s_secret /etc/ssl/certs/dhparam $1
-        else
-            create_k8s_secret /etc/ssl/certs/dhparam $1
-        fi
+        create_dhparam && create_k8s_secret /etc/ssl/certs/dhparam $1
+    else
+        create_k8s_secret /etc/ssl/certs/dhparam $1
     fi
 }
 

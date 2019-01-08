@@ -7,7 +7,7 @@ RUN=false
 TLS_SECRET=${TLS_SECRET:-"tls"}
 DHPARAM_SECRET=${DHPARAM_SECRET:-"dhparam"}
 
-init () {
+init_tls_certs () {
     echo "Initializing certificate..."
     local certbot_args=("--domains" "$DOMAINS" "--cert-name" "$TLS_SECRET")
 
@@ -20,23 +20,21 @@ init () {
 
     if [ $K8S_ENV -eq 1 ]
     then
-        init_k8s_tls_secrets "${certbot_args[@]}" && \
-        init_k8s_dhparam_secret $DHPARAM_SECRET
+        init_k8s_tls_secrets "${certbot_args[@]}"
     else
-        create_or_renew_certificate "${certbot_args[@]}" && \
-        create_dhparam
+        create_or_renew_certificate "${certbot_args[@]}"
     fi
 }
 
-init_or_update () {
+init_or_update_tls () {
     if [ ! -d /etc/letsencrypt/live/$TLS_SECRET ]
     then # No certificate, so we need to init
-        init || exit 1
+        init_tls_certs || exit 1
     else # Certificate exists, renew if required
         if [ $K8S_ENV -eq 1 ]
         then
             # first create secret if not already exists
-            is_k8s_object_exists secrets/$TLS_SECRET || update_k8s_tls_secret $TLS_SECRET
+            is_k8s_secret_exists $TLS_SECRET || create_or_update_k8s_tls_secret $TLS_SECRET
             renew_certificates --renew-hook "renew-hooks.sh --k8s"
         else
             renew_certificates --renew-hook "renew-hooks.sh --docker"
@@ -44,6 +42,15 @@ init_or_update () {
     fi
 }
 
+init_dhparam () {
+    if [ $K8S_ENV -eq 1 ]
+    then
+        init_k8s_dhparam_secret $DHPARAM_SECRET
+    elif [ ! -f /etc/ssl/certs/dhparam/dhparam.pem ]
+    then
+        create_dhparam
+    fi
+}
 
 # Gather parameters
 while [[ $# -gt 0 ]]
@@ -53,13 +60,17 @@ case $1 in
         RUN=true
         shift
     ;;
-    --tls-update)
+    --init-dhparam)
+        shift
+        init_dhparam || exit 1
+    ;;
+    --init-or-update-tls)
         if [ -z $DOMAINS ]
         then
             echo "No DOMAINS env variable is present. It is required with --tls-update option"
             exit 1;
         fi
-        init_or_update || exit 1
+        init_or_update_tls || exit 1
         shift
     ;;
     --configure-nginx)
