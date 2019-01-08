@@ -1,4 +1,4 @@
-# Kubernetes ingress example
+# Example SSL automation on Kubernetes with ingress
 First you need to add the following entry to your existing ingress yaml and apply it:
 
 ```yaml
@@ -62,7 +62,7 @@ Finally modify the [cron-job.yaml](cron-job.yaml) in accordance with [job.yaml](
 kubectl apply -f cron-job.yaml
 ```
 
-If your ingress controller does not pick up the change in the update secret, add the following environment variable to [cron-job.yaml](cron-job.yaml)
+If your ingress controller does not pick up the change in the updated secret, add the following environment variable to [cron-job.yaml](cron-job.yaml)
 ```yaml
         env:
         - name: UPDATE_INGRESS
