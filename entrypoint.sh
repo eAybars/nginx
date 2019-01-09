@@ -122,7 +122,7 @@ case $1 in
         esac
         ;;
     *)
-        echo "Unrecognized option $1. Available options are: --run, --tls-update and --configure-nginx"
+        echo "Unrecognized option $1. Available options are: --run, --init-dhparam, --init-tls, --update-tls, --install-tls-to-ingress and --configure-nginx"
         exit 1
     ;;
 esac
