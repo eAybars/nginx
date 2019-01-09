@@ -26,7 +26,7 @@ Now that we have the secret objects created, we can use them in our [deployment.
         secret:
           secretName: "dhparam" # value of the TLS_SECRET in job.yaml
 ``` 
-Also note that we alse need to mount some container directories to these volumes:
+Also note that we need to mount some container directories to these volumes:
 ```yaml
         volumeMounts:
           - name: ssl-certs
@@ -38,12 +38,12 @@ Also note that we alse need to mount some container directories to these volumes
 
 ```
 
-You can (and should) define additional nginx configurations as Kubernetes ConfigMap objects as you need and mount them to proper locations to fully configure your setup. After you are done with all of that, you can now create the deployment by
+You can (and probably should) define additional nginx configurations as Kubernetes ConfigMap objects as you need and mount them to proper locations to fully configure your setup. After you are done with all of that, you can now create the deployment by
 ```bash
 kubectl apply -f deployment.yaml
 ```
 
-Finally modify the [cron-job.yaml](cron-job.yaml) in accordance with [job.yaml](job.yaml). This is a cron job to periodically check and renew your certificates and update your secrets and deployments after a successful renewal. To create the job simply run
+Finally update the value of `UPDATE_DEPLOYMENT` env var in [cron-job.yaml](cron-job.yaml) to point to your deployment. This is a cron job to periodically check and renew your certificates and update your secrets and deployments after a successful renewal. To create the job simply run
 ```bash
 kubectl apply -f cron-job.yaml
 ```

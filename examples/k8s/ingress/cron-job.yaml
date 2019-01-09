@@ -19,7 +19,7 @@ spec:
           containers:
           - image: eaybars/nginx
             name: ssl-updater
-            args: ["--init-or-update-tls"]
+            args: ["--update-tls"]
             ports:
             - containerPort: 80
               name: http
@@ -27,13 +27,6 @@ spec:
               requests:
                 memory: "100Mi"
                 cpu: 100m
-            env:
-            - name: DOMAINS
-              value: "example.com"
-            - name: EMAIL # skip to generate test certificates
-              value: "your@email.address"
-            - name: TLS_SECRET # will default to tls if shipped
-              value: "tls-certs" # change to your likings
             volumeMounts:
             - name: letsencrypt
               mountPath: /etc/letsencrypt

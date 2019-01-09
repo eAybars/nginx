@@ -22,23 +22,17 @@ init_tls_certs () {
     then
         init_k8s_tls_secrets "${certbot_args[@]}"
     else
-        create_or_renew_certificate "${certbot_args[@]}"
+        create_or_renew_certificate "${certbot_args[@]}" && \
+            copy_certificates $TLS_SECRET
     fi
 }
 
-init_or_update_tls () {
-    if [ ! -d /etc/letsencrypt/live/$TLS_SECRET ]
-    then # No certificate, so we need to init
-        init_tls_certs || exit 1
-    else # Certificate exists, renew if required
-        if [ $K8S_ENV -eq 1 ]
-        then
-            # first create secret if not already exists
-            is_k8s_secret_exists $TLS_SECRET || create_or_update_k8s_tls_secret $TLS_SECRET
-            renew_certificates --renew-hook "renew-hooks.sh --k8s"
-        else
-            renew_certificates --renew-hook "renew-hooks.sh --docker"
-        fi
+update_tls_certs () {
+    if [ $K8S_ENV -eq 1 ]
+    then
+        renew_certificates --renew-hook "renew-hooks.sh --k8s"
+    else
+        renew_certificates --renew-hook "renew-hooks.sh --docker"
     fi
 }
 
@@ -64,14 +58,32 @@ case $1 in
         shift
         init_dhparam || exit 1
     ;;
-    --init-or-update-tls)
+    --init-tls)
         if [ -z $DOMAINS ]
         then
             echo "No DOMAINS env variable is present. It is required with --tls-update option"
             exit 1;
         fi
-        init_or_update_tls || exit 1
+        init_tls_certs || exit 1
         shift
+    ;;
+    --update-tls)
+        update_tls_certs || exit 1
+        shift
+    ;;
+    --install-tls-to-ingress)
+        if [ -z $DOMAINS ]
+        then
+            echo "No DOMAINS env variable is present. It is required with --install-tls-to-ingress"
+            exit 1;
+        fi
+        shift
+        if [ -z $UPDATE_INGRESS ]
+        then
+            echo "You need to specify ingress name through UPDATE_INGRESS env variable when using --install-tls-to-ingress"
+            exit 1
+        fi
+        install_tls_to_ingress $UPDATE_INGRESS $TLS_SECRET
     ;;
     --configure-nginx)
         if [ -z $DOMAINS ]

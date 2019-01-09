@@ -287,7 +287,39 @@ update_ingress () {
     return $exit_code
 }
 
+# $1 ingress name
+# $2 certificate name
+# requires DOMAINS env var to be defined
+install_tls_to_ingress () {
+    local domain_names=()
+    IFS=',' read -ra domain_names <<< "$DOMAINS"
+    local hosts=""
+    for d in ${domain_names[@]}; do
+        hosts="$hosts,\"$d\""
+    done
+    hosts=${hosts#*,}
 
-print_test () {
-    echo "test string from ssl-config-util.sh"
+    printf "\
+{\n\
+  \"apiVersion\": \"extensions/v1beta1\",\n\
+  \"kind\": \"Ingress\",\n\
+  \"metadata\": {\n\
+    \"name\": \"$1\",\n\
+    \"namespace\": \"$NAMESPACE\",\n\
+    \"annotations\": {
+      \"ssl.reload.time\": \"$(date)\"\n\
+     }\n\
+  },\n\
+  \"spec\": {\n\
+    \"tls\":[{\n\
+      \"hosts\":[$hosts],\n\
+      \"secretName\":\"$2\"\n\
+    }]\n\
+  }\n\
+}\n\
+" >> /tmp/$1-Ingress.json
+    k8s_call "apis/extensions/v1beta1/namespaces/${NAMESPACE}/ingresses/$1" -H "Content-Type: application/strategic-merge-patch+json" "-XPATCH" -d "@/tmp/$1-Ingress.json"
+    exit_code=$?
+    rm /tmp/$1-Ingress.json
+    return $exit_code
 }

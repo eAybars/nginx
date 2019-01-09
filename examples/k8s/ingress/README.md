@@ -57,7 +57,17 @@ spec:
           servicePort: 9980
 
 ``` 
-Finally modify the [cron-job.yaml](cron-job.yaml) in accordance with [job.yaml](job.yaml). This is a cron job to periodically check and renew your certificates and update your secrets after a successfull renewal. To create the job simply run
+Alternatively, if you will have a single tls entry in your ingress definition, you could use `--install-tls-to-ingress` argument with `UPDATE_INGRESS` environment variable pointing to your ingress name to have the job automatically configure and update your ingress definition. If you prefer this, just make the following changes in your job.yaml 
+```yaml
+        ...
+        args: ["--init-tls", "--install-tls-to-ingress"]
+        env:
+        - name: UPDATE_INGRESS
+          value: "my-existing-ingress" # your actual ingress name here
+        ...
+```
+
+Finally apply the [cron-job.yaml](cron-job.yaml). This is a cron job to periodically check and renew your certificates and update your secrets after a successfull renewal. To create the job simply run
 ```bash
 kubectl apply -f cron-job.yaml
 ```
