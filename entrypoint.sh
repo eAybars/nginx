@@ -6,6 +6,24 @@ source /usr/bin/nginx-config-util.sh
 RUN=false
 TLS_SECRET=${TLS_SECRET:-"tls"}
 DHPARAM_SECRET=${DHPARAM_SECRET:-"dhparam"}
+# wait time can be used to give k8s ingress controller a change to health check our service before
+# we attempt to retrieve certificates
+WAIT=0
+
+find_wait_time () {
+    local argc=$#
+    local argv=($@)
+
+    for (( j=0; j<argc; j++ )); do
+        if [ ${argv[j]} == "--wait" ]; then WAIT=${argv[j+1]}; fi
+    done
+
+    local re='^[0-9]+$'
+
+    if ! [[ $WAIT =~ $re ]] ; then
+        echo "error: --wait value is not a number" >&2; return 1
+    fi
+}
 
 init_tls_certs () {
     echo "Initializing certificate..."
@@ -18,19 +36,40 @@ init_tls_certs () {
         certbot_args+=("--email" "$EMAIL")
     fi
 
+
     if [ $K8S_ENV -eq 1 ]
     then
-        init_k8s_tls_secrets "${certbot_args[@]}"
+        if [ $WAIT -gt 0 ]
+        then
+            nginx && sleep $WAIT || return 1
+            init_k8s_tls_secrets "${certbot_args[@]}"
+            local exit_code=$?
+            nginx -s stop && wait_nginx_stop || return 1
+            return $exit_code
+        else
+            init_k8s_tls_secrets "${certbot_args[@]}"
+        fi
     else
         create_or_renew_certificate "${certbot_args[@]}" && \
             copy_certificates $TLS_SECRET
     fi
+
+
 }
 
 update_tls_certs () {
     if [ $K8S_ENV -eq 1 ]
     then
-        renew_certificates --renew-hook "renew-hooks.sh --k8s"
+        if [ $WAIT -gt 0 ]
+        then
+            nginx && sleep $WAIT || return 1
+            renew_certificates --renew-hook "renew-hooks.sh --k8s"
+            local exit_code=$?
+            nginx -s stop && wait_nginx_stop || return 1
+            return $exit_code
+        else
+            renew_certificates --renew-hook "renew-hooks.sh --k8s"
+        fi
     else
         renew_certificates --renew-hook "renew-hooks.sh --docker"
     fi
@@ -46,10 +85,17 @@ init_dhparam () {
     fi
 }
 
+# first initialize wait time
+find_wait_time || exit 1
+
 # Gather parameters
 while [[ $# -gt 0 ]]
 do
 case $1 in
+    --wait)
+        shift # shift wait argument
+        shift # shift wait value
+    ;;
     --run)
         RUN=true
         shift
@@ -70,20 +116,6 @@ case $1 in
     --update-tls)
         update_tls_certs || exit 1
         shift
-    ;;
-    --install-tls-to-ingress)
-        if [ -z $DOMAINS ]
-        then
-            echo "No DOMAINS env variable is present. It is required with --install-tls-to-ingress"
-            exit 1;
-        fi
-        shift
-        if [ -z $UPDATE_INGRESS ]
-        then
-            echo "You need to specify ingress name through UPDATE_INGRESS env variable when using --install-tls-to-ingress"
-            exit 1
-        fi
-        install_tls_to_ingress $UPDATE_INGRESS $TLS_SECRET
     ;;
     --configure-nginx)
         if [ -z $DOMAINS ]
@@ -122,7 +154,7 @@ case $1 in
         esac
         ;;
     *)
-        echo "Unrecognized option $1. Available options are: --run, --init-dhparam, --init-tls, --update-tls, --install-tls-to-ingress and --configure-nginx"
+        echo "Unrecognized option $1. Available options are: --run, --init-dhparam, --init-tls, --update-tls, --wait and --configure-nginx"
         exit 1
     ;;
 esac

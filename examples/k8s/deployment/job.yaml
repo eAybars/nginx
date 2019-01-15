@@ -12,7 +12,7 @@ spec:
         component: tls
         role: ssl-management
     spec:
-      restartPolicy: Never
+      serviceAccount: ssl-management-service-account
       containers:
       - image: eaybars/nginx
         name: ssl-init

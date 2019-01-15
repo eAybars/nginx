@@ -12,11 +12,11 @@ spec:
         component: tls
         role: ssl-management
     spec:
-      restartPolicy: Never
+      serviceAccount: ssl-management-service-account
       containers:
       - image: eaybars/nginx
         name: ssl-init
-        args: ["--init-tls"]
+        args: ["--init-tls", "--wait", "0"] # change 0 to some other time if ingress controller needs time for health check
         ports:
         - containerPort: 80
           name: http

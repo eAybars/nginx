@@ -1,17 +1,28 @@
 # Example Kubernetes deployment without using ingress
-First, you may need to modify the [letsencrypt-volume.yaml](letsencrypt-volume.yaml) file to provide a better suited volume definition for your environment before proceeding further.
+First, you may need to modify the [letsencrypt-volume.yaml](letsencrypt-volume.yaml) file to provide a better suited volume definition for your environment before proceeding further. Alternatively you could just use PersistentVolumeClaim without PersistentVolume if auto provisioning is enabled.
 
-Modified the [job.yaml](job.yaml) file with your data. You need to apply it to have the container obtain ssl certificates and create a [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/) object to store them. It also creates a [Diffie Hellman Ephemeral Parameters](https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange) key for stronger SSL security and stores it on a Kubernetes secret which then will be used in the deployment. To apply job.yaml with all its dependencies you can simple run
+Note that the service account used for this pod must have edit privileges for it to be able to create secrets. To make sure apply the [service-account.yaml](service-account.yaml) file and create a role binding by running:
 ```bash
-install.sh
+kubectl create rolebinding ssl-management-role \
+  --clusterrole=edit \
+  --serviceaccount=default:ssl-management-service-account \
+  --namespace=default
 ```
-or 
+
+
+Next, Modify the [job.yaml](job.yaml) file with your data. You need to apply it to have the container obtain ssl certificates and create a [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/) object to store them. It also creates a [Diffie Hellman Ephemeral Parameters](https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange) key for stronger SSL security and stores it on a Kubernetes secret which then will be used in the deployment. To apply job.yaml with all its dependencies you can run
 ```bash
 kubectl apply -f letsencrypt-volume.yaml && \
     kubectl apply -f letsencrypt-volume-claim.yaml && \
     kubectl apply -f service.yaml && \
     kubectl apply -f job.yaml
 ```
+
+Alternatively [install.sh](install.sh) file has all the scripts mentioned up to this point for convenience, you can simply run that:
+```bash
+./install.sh
+```
+
 At this point you should be able to see the automatically generated secrets by running:
 ```bash
 kubectl get secrets
