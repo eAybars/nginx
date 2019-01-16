@@ -16,7 +16,7 @@ spec:
       containers:
       - image: eaybars/nginx
         name: ssl-init
-        args: ["--init-tls", "--wait", "0"] # change 0 to some other time if ingress controller needs time for health check
+        args: ["--init-or-update-cert", "--wait", "0"] # change 0 to some other time if ingress controller needs time for health check
         ports:
         - containerPort: 80
           name: http

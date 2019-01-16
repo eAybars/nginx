@@ -16,7 +16,7 @@ spec:
       containers:
       - image: eaybars/nginx
         name: ssl-init
-        args: ["--init-tls", "--init-dhparam"]
+        args: ["--init-or-update-cert", "--init-dhparam"]
         ports:
         - containerPort: 80
           name: http

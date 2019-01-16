@@ -19,7 +19,7 @@ spec:
           containers:
           - image: eaybars/nginx
             name: ssl-updater
-            args: ["--update-tls"]
+            args: ["--renew-certs"]
             ports:
             - containerPort: 80
               name: http

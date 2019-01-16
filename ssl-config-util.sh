@@ -38,12 +38,13 @@ find_parameter_value () {
                 ;;
         esac
     done
+    return 1
 }
 
-create_or_renew_certificate () {
+create_or_update_certificate () {
     local certbot_args=("certonly" "--agree-tos" "--non-interactive" "--webroot" "--webroot-path" "/usr/share/nginx/html" "$@")
 
-    echo "Invoking: certbot ${certbot_args[@]}"
+    echo "create_or_update_certificate: certbot ${certbot_args[@]}"
 
     if [ ! -f /var/run/nginx.pid ]
     then
@@ -52,7 +53,7 @@ create_or_renew_certificate () {
 
         exit_code=$?
         nginx -s stop && wait_nginx_stop
-        if [ $exit_code -ne 0 ] ; then return $exit_code; fi
+        return $exit_code
     else
         certbot "${certbot_args[@]}" && nginx -s reload
     fi
@@ -60,7 +61,8 @@ create_or_renew_certificate () {
 
 
 renew_certificates () {
-    local renew_args=("renew" "--quiet" "$@")
+    local renew_args=("renew" "$@")
+    echo "renew_certificates: certbot ${renew_args[@]}"
 
     if [ ! -f /var/run/nginx.pid ]
     then
@@ -68,7 +70,7 @@ renew_certificates () {
         exit_code=$?
 
         nginx -s stop && wait_nginx_stop
-        if [ $exit_code -ne 0 ] ; then return $exit_code; fi
+        return $exit_code
     else
         certbot "${renew_args[@]}"
     fi
@@ -87,6 +89,10 @@ copy_certificates () {
     then
         echo "No certificate name specified for copy_certificates"
         return 1;
+    fi
+    if [ ! -d /etc/letsencrypt/live/$cert_name/ ]; then
+        echo "Certificate not found: /etc/letsencrypt/live/$cert_name/"
+        return 1
     fi
 
     mkdir -p /etc/ssl/certs/$cert_name && \
@@ -188,7 +194,7 @@ update_k8s_secret () {
 create_or_update_k8s_tls_secret () {
     local cert_name=$1
 
-    copy_certificates $cert_name || exit 1
+    copy_certificates $cert_name || return 1
 
     if is_k8s_secret_exists "$cert_name"
     then
@@ -200,7 +206,7 @@ create_or_update_k8s_tls_secret () {
     fi
 }
 
-init_k8s_tls_secrets () {
+init_or_update_k8s_tls_secrets () {
     local cert_name=$(find_parameter_value "--cert-name" "$@")
 
     if [ -z $cert_name ]
@@ -216,7 +222,9 @@ init_k8s_tls_secrets () {
         fi
     fi
 
-    create_or_renew_certificate "$@" && create_or_update_k8s_tls_secret $cert_name
+    create_or_update_certificate "$@" && \
+        ! find_parameter_value "--dry-run" "$@" &> /dev/null && \
+        create_or_update_k8s_tls_secret $cert_name
 }
 
 # $1 dhparam secret name
