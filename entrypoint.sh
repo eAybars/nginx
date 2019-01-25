@@ -26,7 +26,7 @@ update_k8s_object_data () {
         else
             mkdir -p /etc/letsencrypt/live/$TLS_SECRET && printf $UPDATE_DEPLOYMENT > /etc/letsencrypt/live/$TLS_SECRET/deployment.name
         fi
-        if [ ! -z $UPDATE_INGRESS ]; then
+        if [ -z $UPDATE_INGRESS ]; then
             rm /etc/letsencrypt/live/$TLS_SECRET/ingress.name 2> /dev/null
         else
             mkdir -p /etc/letsencrypt/live/$TLS_SECRET && printf $UPDATE_INGRESS > /etc/letsencrypt/live/$TLS_SECRET/ingress.name
@@ -65,7 +65,7 @@ case $1 in
     --init-or-update-cert)
         if [ ${#INIT_ARGS[@]} -gt 1 ]; then echo "You cannot specify --init-or-update-cert more than once" && exit 1; fi
         ARG_ARRAY_TO_ADD="INIT_ARGS"
-        RENEW_ARGS=("--renew-hook" "renew-hooks.sh")
+        INIT_ARGS=("--renew-hook" "renew-hooks.sh")
 
         if [ ! -z $DOMAINS ]
         then
@@ -90,7 +90,6 @@ case $1 in
         shift
         if [ -z $1 ]; then echo "--cert-name requires a value indicating name of the certificate and K8S secret name to store it" && exit 1; fi
         TLS_SECRET="$1"
-        INIT_ARGS=("--cert-name" "$TLS_SECRET")
         shift
     ;;
     -d|--domains|--domain)
@@ -174,10 +173,8 @@ fi
 EXIT_CODE=0
 
 if [ ${#INIT_ARGS[@]} -gt 0 ]; then
-    if ! find_parameter_value "--cert-name" "${INIT_ARGS[@]}" &> /dev/null
-    then
-        INIT_ARGS+=("--cert-name" "$TLS_SECRET")
-    fi
+    INIT_ARGS+=("--cert-name" "$TLS_SECRET")
+
     if ! find_parameter_value "--email" "${INIT_ARGS[@]}" &> /dev/null && ! find_parameter_value "--register-unsafely-without-email" "${INIT_ARGS[@]}" &> /dev/null
     then
         if [ -z $EMAIL ]; then
@@ -196,7 +193,7 @@ if [ ${#INIT_ARGS[@]} -gt 0 ]; then
             update_k8s_object_data
             existing_certificate=1
         else #certificate does not exist, we will attempt to get it
-            export RENEWED_LINEAGE="/etc/letsencrypt/live/$TLS_SECRET/"
+            export RENEWED_LINEAGE="/etc/letsencrypt/live/$TLS_SECRET"
             existing_certificate=0
         fi
 
