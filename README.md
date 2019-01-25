@@ -14,15 +14,22 @@ To do initial configuration, just create a [Kubernetes Jon](https://kubernetes.i
 If the ingress controller needs some time to be able to health check and mark this service alive, (i.e google cloud default ingress controller) you can specify a time to wait before attempting to retrieve the certificate by including `--wait` argument and corresponding wait time. For example specifying `--wait 300` will cause the job to start nginx and wait 5 minutes before attempting to retrieve the certificate 
 
 #### Certificate Renewal
-Create a [Kubernetes Cron Job](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) using this image with `--renew-certs` argument to renew previously retrieved ssl certificates and update their corresponding secrets. No need to specify any particular environment variables. However if your Kubernetes ingress does not pick up the change in the updated tls secret, you can specify your ingress name via `UPDATE_INGRESS` environment variable to enforce an update on your ingress object whenever a certificate is renewed.
+You can use the initial configuration as is to renew a certificate when it is about to expire. 
+
+Alternatively you can create a [Kubernetes Cron Job](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) using this image with `--renew-certs` argument to renew all previously retrieved ssl certificates and update their corresponding secrets and other kubernetes objects like deployments and ingresses if they were specified during the initial configuration. No need to specify any particular environment variables with this setup. 
  
 See the [ingress example](examples/k8s/ingress/README.md) for details.
 
 ### Without Kubernetes Ingress
 Since this is a nginx image, it can also be used as a Kubernetes Deployment for reverse proxy and load balancing as a substitution for Kubernetes Ingress object. This setup consists of 3 parts:
-- A [Kubernetes Jon](https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/) for initial setup. This job does 2 things. First, by specifying`--init-or-update-cert`argument we have it retrieve an SSL certificate and store it on a Kuberntes secret which then will be used in the Kubernetes Deployment (see next part). Second, specifying `--init-dhparam` argument instructs it to create and store a [Diffie Hellman Ephemeral Parameters](https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange) key for stronger SSL security and stores it on a Kubernetes secret which then will be used in the deployment.  
-- A [Kubernetes Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) running plain nginx with mounted configuration and secrets. To run as plain nginx, do not specify arguments or just use `--run` argument. 
-- A [Kubernetes Cron Job](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) which runs with `--renew-certs` argument and renews ssl certificates and updates deployments to enforce refreshment of the mounted secrets in deployment. You need to provide the name of the Kubernetes Deployment to refresh through `UPDATE_DEPLOYMENT` environment variable. If you skip this variable, your deployment will not be updated and therefore updated secrets will not take effect on the deployment.
+- A [Kubernetes Jon](https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/) for initial setup. This job does 2 things.
+ 
+   First, by specifying`--init-or-update-cert`argument we have it retrieve an SSL certificate and store it on a Kubernetes secret which then will be used in the Kubernetes Deployment (see next part). You need to provide the name of this deployment through `UPDATE_DEPLOYMENT` environment variable to refresh it when the certificates are renewed. If you skip this variable, your deployment may not be updated and therefore updated secrets may not take effect on the deployment.
+
+   Second, specifying `--init-dhparam` argument instructs it to create and store a [Diffie Hellman Ephemeral Parameters](https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange) key for stronger SSL security and stores it on a Kubernetes secret which then will be used in the deployment.  
+
+- A [Kubernetes Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) running plain nginx with mounted configuration and secrets. To run as plain nginx, do not specify any arguments or alternatively use just `--run` argument. 
+- A [Kubernetes Cron Job](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/) which runs with `--renew-certs` argument and renews ssl certificates and updates deployments to enforce refreshment of the mounted secrets in deployment. 
 
 See [deployment example](examples/k8s/deployment/README.md) for more details
 
@@ -70,3 +77,10 @@ will quietly renew the certificates, or
 docker run -p 80:80 -p 443:443 -d --name nginx-ssl -v /data/ssl/letsencrypt:/etc/letsencrypt -v /data/ssl/certs:/etc/ssl/certs eaybars/nginx --renew-certs --force-renewal
 ```
 will forcibly renew the certificates
+
+### Kubernetes objects update
+When you use `--init-or-update-cert` to either create a new certificate or renew previously retrieved certificate, you can specify a kubernetes deployment name and/or ingress name to update through.
+- `UPDATE_DEPLOYMENT` environment variable value or `--update-eployment <deployment-name>` argument  
+- `UPDATE_INGRESS` environment variable value or `--update-ingress <ingress-name>` argument
+
+Note that if you provided these configurations when running with `--init-or-update-cert`, container run with `--renew-certs` after that will pick that up as well and will perform the required updates.

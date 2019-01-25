@@ -2,31 +2,30 @@
 
 source /usr/bin/ssl-config-util.sh
 
-k8s_tls_renew_hook () {
-    create_or_update_k8s_tls_secret "${RENEWED_LINEAGE##*/}"
-    if [ ! -z $UPDATE_DEPLOYMENT ]; then update_deployment $UPDATE_DEPLOYMENT; fi
-    if [ ! -z $UPDATE_INGRESS ]; then update_ingress $UPDATE_INGRESS; fi
-}
+EXIT_CODE=0
+cert_name="${RENEWED_LINEAGE##*/}"
 
-docker_tls_renew_hook () {
-    copy_certificates "${RENEWED_LINEAGE##*/}"
-    if [ -f /var/run/nginx.pid ]; then nginx -s reload; fi
-}
+if [ -z $cert_name ]; then
+    echo "Cannot determine certificate name"
+    exit 1
+fi
 
-while [[ $# -gt 0 ]]
-do
-case $1 in
-    --k8s)
-        k8s_tls_renew_hook
-        shift
-    ;;
-    --docker)
-        docker_tls_renew_hook
-        shift
-    ;;
-    *)
-        echo "Unrecognized option $1. Available options are: --k8s and --docker"
-        exit 1
-    ;;
-esac
-done
+if [ $K8S_ENV -eq 1 ]; then
+    create_or_update_k8s_tls_secret $cert_name
+    EXIT_CODE=$?
+    if [ $EXIT_CODE == 0 ]; then
+        if [ -f /etc/letsencrypt/live/$cert_name/deployment.name ]; then
+            update_deployment $(cat /etc/letsencrypt/live/$cert_name/deployment.name)
+            EXIT_CODE=$?
+        fi
+        if [ $EXIT_CODE == 0 ] && [ -f /etc/letsencrypt/live/$cert_name/ingress.name ]; then
+            update_ingress $(cat /etc/letsencrypt/live/$cert_name/ingress.name)
+            EXIT_CODE=$?
+        fi
+    fi
+else
+    copy_certificates $cert_name
+    EXIT_CODE=$?
+    if [ $EXIT_CODE == 0 ] && [ -f /var/run/nginx.pid ]; then nginx -s reload; fi
+fi
+exit $EXIT_CODE

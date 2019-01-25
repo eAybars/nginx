@@ -27,9 +27,6 @@ spec:
               requests:
                 memory: "100Mi"
                 cpu: 100m
-            env:
-            - name: UPDATE_DEPLOYMENT # will force an update on the specified deployment, which should point to your nginx
-              value: "nginx-ssl" # deployment name in deployment.yaml
             volumeMounts:
             - name: letsencrypt
               mountPath: /etc/letsencrypt

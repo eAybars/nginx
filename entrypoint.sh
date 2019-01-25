@@ -9,7 +9,6 @@ DHPARAM_SECRET=${DHPARAM_SECRET:-"dhparam"}
 # wait time can be used to give k8s ingress controller a change to health check our service before
 # we attempt to retrieve certificates
 WAIT=0
-INIT_REQUESTED=0
 INIT_ARGS=()
 RENEW_ARGS=()
 
@@ -18,6 +17,21 @@ ARG_ARRAY_TO_ADD="none"
 print_invalid_option_message () {
     echo "unexpected option here: $1"
     echo "First use --init-or-update-cert to pass arguments to \"certbot certonly\", or use --renew-certs to pass arguments to \"certbot renew\""
+}
+
+update_k8s_object_data () {
+    if [ $K8S_ENV -eq 1 ]; then
+        if [ -z $UPDATE_DEPLOYMENT ]; then
+            rm /etc/letsencrypt/live/$TLS_SECRET/deployment.name 2> /dev/null
+        else
+            mkdir -p /etc/letsencrypt/live/$TLS_SECRET && printf $UPDATE_DEPLOYMENT > /etc/letsencrypt/live/$TLS_SECRET/deployment.name
+        fi
+        if [ ! -z $UPDATE_INGRESS ]; then
+            rm /etc/letsencrypt/live/$TLS_SECRET/ingress.name 2> /dev/null
+        else
+            mkdir -p /etc/letsencrypt/live/$TLS_SECRET && printf $UPDATE_INGRESS > /etc/letsencrypt/live/$TLS_SECRET/ingress.name
+        fi
+    fi
 }
 
 while [[ $# -gt 0 ]]
@@ -49,20 +63,33 @@ case $1 in
         fi
     ;;
     --init-or-update-cert)
-        INIT_REQUESTED=$((INIT_REQUESTED+1))
-        if [ $INIT_REQUESTED -gt 1 ]; then echo "You cannot specify --init-or-update-tls more than once" && exit 1; fi
+        if [ ${#INIT_ARGS[@]} -gt 1 ]; then echo "You cannot specify --init-or-update-cert more than once" && exit 1; fi
         ARG_ARRAY_TO_ADD="INIT_ARGS"
+        RENEW_ARGS=("--renew-hook" "renew-hooks.sh")
+
         if [ ! -z $DOMAINS ]
         then
             INIT_ARGS+=("--domains" "$DOMAINS")
         fi
         shift
     ;;
+    --update-deployment)
+        if [ $ARG_ARRAY_TO_ADD != "INIT_ARGS" ]; then echo "--update-deployment can only be used with --init-or-update-cert" && exit 1; fi
+        shift
+        if [ -z $1 ]; then echo "--update-deployment requires a value indicating which k8s deployment object to annotate" && exit 1; fi
+        UPDATE_DEPLOYMENT="$1"
+    ;;
+    --update-ingress)
+        if [ $ARG_ARRAY_TO_ADD != "INIT_ARGS" ]; then echo "--update-ingress can only be used with --init-or-update-cert" && exit 1; fi
+        shift
+        if [ -z $1 ]; then echo "--update-ingress requires a value indicating which k8s ingress object to annotate" && exit 1; fi
+        UPDATE_INGRESS="$1"
+    ;;
     --cert-name)
         if [ $ARG_ARRAY_TO_ADD != "INIT_ARGS" ]; then print_invalid_option_message "$1" && exit 1; fi
         shift
         if [ -z $1 ]; then echo "--cert-name requires a value indicating name of the certificate and K8S secret name to store it" && exit 1; fi
-        TLS_SECRET=$1
+        TLS_SECRET="$1"
         INIT_ARGS=("--cert-name" "$TLS_SECRET")
         shift
     ;;
@@ -79,14 +106,9 @@ case $1 in
         shift
     ;;
     --renew-certs)
-        if [ ${#RENEW_ARGS[@]} -gt 0 ]; then echo "You cannot specify --renew-tls more than once" && exit 1; fi
+        if [ ${#RENEW_ARGS[@]} -gt 0 ]; then echo "You cannot specify --renew-certs more than once" && exit 1; fi
         ARG_ARRAY_TO_ADD="RENEW_ARGS"
-        if [ $K8S_ENV -eq 1 ]
-        then
-            RENEW_ARGS=("--renew-hook" "renew-hooks.sh --k8s")
-        else
-            RENEW_ARGS=("--renew-hook" "renew-hooks.sh --docker")
-        fi
+        RENEW_ARGS=("--renew-hook" "renew-hooks.sh")
         shift
     ;;
     --configure-nginx)
@@ -133,7 +155,7 @@ case $1 in
         then
             RENEW_ARGS+=("$1")
         else
-            print_invalid_option_message
+            print_invalid_option_message "$1"
             exit 1
         fi
         shift
@@ -167,21 +189,26 @@ if [ ${#INIT_ARGS[@]} -gt 0 ]; then
     fi
     if [ -z $DOMAINS ]
     then
-        echo "--init-or-update-tls specified but no domain information is available. Use DOMAINS env var or -d, --domain or --domains arguments to provide domain information"
+        echo "--init-or-update-cert specified but no domain information is available. Use DOMAINS env var or -d, --domain or --domains arguments to provide domain information"
         EXIT_CODE=1
-    elif [ $K8S_ENV -eq 1 ]
-    then
-        init_or_update_k8s_tls_secrets "${INIT_ARGS[@]}"
-        EXIT_CODE=$?
     else
-        create_or_update_certificate "${INIT_ARGS[@]}" && \
-            ! find_parameter_value "--dry-run" "$@" &> /dev/null && \
-            copy_certificates $TLS_SECRET
+        if [ -d /etc/letsencrypt/live/$TLS_SECRET/ ]; then
+            update_k8s_object_data
+            existing_certificate=1
+        else #certificate does not exist, we will attempt to get it
+            export RENEWED_LINEAGE="/etc/letsencrypt/live/$TLS_SECRET/"
+            existing_certificate=0
+        fi
+
+        create_or_update_certificate "${INIT_ARGS[@]}"
         EXIT_CODE=$?
+
+        if [ $EXIT_CODE == 0 ] && [ $existing_certificate == 0 ] && ! find_parameter_value "--dry-run" "${INIT_ARGS[@]}" &> /dev/null; then
+            # call hooks
+            /usr/bin/renew-hooks.sh && update_k8s_object_data
+            EXIT_CODE=$?
+        fi
     fi
-elif [ $INIT_REQUESTED -gt 0 ]; then
-    echo "--init-or-update-tls specified but no domain information is available. Use DOMAINS env var or -d, --domain or --domains arguments to provide domain information"
-    EXIT_CODE=1
 fi
 
 if [ $EXIT_CODE -eq 0 ] && [ ${#RENEW_ARGS[@]} -gt 0 ]; then

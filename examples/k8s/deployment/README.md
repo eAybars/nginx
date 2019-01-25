@@ -10,7 +10,18 @@ kubectl create rolebinding ssl-management-role \
 ```
 
 
-Next, Modify the [job.yaml](job.yaml) file with your data. You need to apply it to have the container obtain ssl certificates and create a [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/) object to store them. It also creates a [Diffie Hellman Ephemeral Parameters](https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange) key for stronger SSL security and stores it on a Kubernetes secret which then will be used in the deployment. To apply job.yaml with all its dependencies you can run
+Next, Modify the [job.yaml](job.yaml) file with your data. You need to apply it to have the container obtain ssl certificates and create a [Kubernetes Secret](https://kubernetes.io/docs/concepts/configuration/secret/) object to store them. It also creates a [Diffie Hellman Ephemeral Parameters](https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange) key for stronger SSL security and stores it on a Kubernetes secret which then will be used in the deployment. 
+
+Note the following environment variable
+```yaml
+        env:
+        - name: UPDATE_DEPLOYMENT # will force an update on the specified deployment, which should point to your nginx
+          value: "nginx-ssl" # deployment name in deployment.yaml
+
+```
+This will force an update on your deployment after a successful certificate renewal happens later on
+
+To apply job.yaml with all its dependencies you can run
 ```bash
 kubectl apply -f letsencrypt-volume.yaml && \
     kubectl apply -f letsencrypt-volume-claim.yaml && \
@@ -54,15 +65,7 @@ You can (and probably should) define additional nginx configurations as Kubernet
 kubectl apply -f deployment.yaml
 ```
 
-Finally update the value of `UPDATE_DEPLOYMENT` env var in [cron-job.yaml](cron-job.yaml) to point to your deployment. This is a cron job to periodically check and renew your certificates and update your secrets and deployments after a successful renewal. To create the job simply run
+Finally apply [cron-job.yaml](cron-job.yaml). This is a cron job to periodically check and renew your certificates and update your secrets and deployments after a successful renewal. To create the job simply run
 ```bash
 kubectl apply -f cron-job.yaml
 ```
-Note the following environment variable in [cron-job.yaml](cron-job.yaml)
-```yaml
-        env:
-        - name: UPDATE_DEPLOYMENT # will force an update on the specified deployment, which should point to your nginx
-          value: "nginx-ssl" # deployment name in deployment.yaml
-
-```
-This will force an update on your deployment after a successful certificate renewal

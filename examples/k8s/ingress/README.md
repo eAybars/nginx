@@ -73,7 +73,7 @@ Finally apply the [cron-job.yaml](cron-job.yaml). This is a cron job to periodic
 kubectl apply -f cron-job.yaml
 ```
 
-If your ingress controller does not pick up the change in the updated secret, add the following environment variable to [cron-job.yaml](cron-job.yaml)
+If your ingress controller does not pick up the change in the updated secret, add the following environment variable to [job.yaml](job.yaml)
 ```yaml
         env:
         - name: UPDATE_INGRESS

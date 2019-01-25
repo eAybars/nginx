@@ -206,27 +206,6 @@ create_or_update_k8s_tls_secret () {
     fi
 }
 
-init_or_update_k8s_tls_secrets () {
-    local cert_name=$(find_parameter_value "--cert-name" "$@")
-
-    if [ -z $cert_name ]
-    then
-        cert_name=$(find_parameter_value "--domains" "$@")
-        if [ -z $cert_name ]; then cert_name=$(find_parameter_value "-d" "$@"); fi
-        if [ -z $cert_name ]
-        then
-            echo "Cannot determine certificate name"
-            return 1
-        else
-            cert_name="$(echo $cert_name | cut -f1 -d',')"
-        fi
-    fi
-
-    create_or_update_certificate "$@" && \
-        ! find_parameter_value "--dry-run" "$@" &> /dev/null && \
-        create_or_update_k8s_tls_secret $cert_name
-}
-
 # $1 dhparam secret name
 init_k8s_dhparam_secret () {
     if [ -z $1 ]
